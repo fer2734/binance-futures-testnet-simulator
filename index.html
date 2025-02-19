@@ -1,0 +1,804 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Scalping - Binance Futures (1m) - Simulación Mejorada</title>
+  <style>
+    body { 
+      background-color: #111; 
+      color: white; 
+      font-family: Arial, sans-serif; 
+      text-align: center; 
+      padding: 10px; 
+      margin: 0;
+    }
+    h1 { margin-top: 20px; }
+    /* Configuración del balance inicial */
+    #balanceSetup {
+      margin: 10px auto;
+      padding: 10px;
+      background: #222;
+      border-radius: 10px;
+      max-width: 300px;
+    }
+    #balanceSetup input {
+      padding: 5px;
+      font-size: 14px;
+      width: 80%;
+      margin-bottom: 5px;
+    }
+    #balanceSetup button {
+      padding: 5px 10px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    /* Balance neto */
+    #netProfitDisplay {
+      font-size: 20px;
+      font-weight: bold;
+      margin: 10px;
+    }
+    /* Resumen de operaciones */
+    #summaryContainer {
+      max-width: 1000px;
+      margin: 10px auto;
+      padding: 10px;
+      background: #222;
+      border-radius: 10px;
+    }
+    #summaryContainer h2 { margin-bottom: 5px; }
+    #summaryContent { font-size: 12px; text-align: left; }
+    /* Carrusel horizontal de tarjetas */
+    #cryptoContainer {
+      display: flex;
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      gap: 10px;
+      padding: 10px;
+    }
+    .crypto-card {
+      flex: 0 0 auto;
+      width: 180px;
+      border: 1px solid #333;
+      padding: 8px;
+      border-radius: 10px;
+      background: #222;
+      box-sizing: border-box;
+    }
+    .crypto-card h2 { font-size: 14px; margin-bottom: 5px; }
+    .price { font-size: 16px; font-weight: bold; color: #4caf50; }
+    .signal { 
+      font-size: 12px; 
+      font-weight: bold; 
+      padding: 3px 5px; 
+      border-radius: 5px; 
+      display: inline-block; 
+      margin-top: 4px;
+    }
+    .buy { background: #4caf50; }
+    .sell { background: #f44336; }
+    .neutral { background: #777; }
+    .trend { font-size: 12px; margin-top: 5px; }
+    /* Tabla de historial responsive */
+    #historyContainer {
+      max-width: 1000px;
+      margin: 20px auto;
+      padding: 10px;
+      background: #222;
+      border-radius: 10px;
+      overflow-x: auto;
+    }
+    #historyContainer h2 { margin-bottom: 10px; }
+    table { width: 100%; border-collapse: collapse; min-width: 800px; }
+    th, td { border: 1px solid #555; padding: 6px; font-size: 10px; }
+    th { background-color: #333; }
+    #clearHistoryBtn { margin-top: 10px; padding: 5px 10px; font-size: 14px; cursor: pointer; }
+    
+    /* Mejoras para dispositivos móviles */
+    @media (max-width: 600px) {
+      #balanceSetup { max-width: 90%; }
+      .crypto-card { width: 140px; padding: 5px; }
+      table { font-size: 8px; }
+      #netProfitDisplay { font-size: 16px; }
+    }
+  </style>
+</head>
+<body>
+  <h1>Scalping - Binance Futures (1m)</h1>
+  <!-- Configuración del balance inicial -->
+  <div id="balanceSetup">
+    <label for="initialBalance">Balance Inicial ($): </label><br>
+    <input id="initialBalance" type="number" placeholder="300" value="300" /><br>
+    <button id="setBalanceBtn">Establecer Balance</button>
+  </div>
+  <!-- Balance neto -->
+  <div id="netProfitDisplay">Balance Neto: $0.0000</div>
+  <!-- Resumen de operaciones -->
+  <div id="summaryContainer">
+    <h2>Resumen de Operaciones</h2>
+    <p id="summaryContent">Cargando resumen...</p>
+  </div>
+  <!-- Tarjetas de criptomonedas -->
+  <div id="cryptoContainer"></div>
+  <!-- Historial de señales -->
+  <h2>Historial de Señales</h2>
+  <div id="historyContainer">
+    <table id="historyTable">
+      <thead>
+        <tr>
+          <th>Hora</th>
+          <th>Símbolo</th>
+          <th>Señal</th>
+          <th>Precio</th>
+          <th>Valor Orden</th>
+          <th>TP</th>
+          <th>Ganancia (TP)</th>
+          <th>SL</th>
+          <th>Pérdida (SL)</th>
+          <th>Estado</th>
+          <th>Tiempo (min)</th>
+          <th>Estimado TP (min)</th>
+          <th>Ganancia/Perdida</th>
+          <th>Indicadores</th>
+        </tr>
+      </thead>
+      <tbody id="historyList"></tbody>
+    </table>
+    <button id="clearHistoryBtn">Borrar Historial</button>
+  </div>
+  
+  <script>
+  (function(){
+    "use strict";
+    
+    /*************** MÓDULO: DataFetcher (con datos reales) ***************/
+    const DataFetcher = (function(){
+      const dataCache = {};
+      const validity = { "1m": 8000, "5m": 30000, "15m": 60000 };
+      
+      async function fetchData(symbol, interval) {
+        const cacheKey = `${symbol}-${interval}`;
+        const now = Date.now();
+        if(dataCache[cacheKey] && (now - dataCache[cacheKey].timestamp < (validity[interval] || 10000))) {
+          return dataCache[cacheKey].data;
+        }
+        try {
+          // URL para datos reales de Binance Futures
+const url = `https://testnet.binancefuture.com/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=50`;
+          const response = await window.fetch(url);
+          if (!response.ok) return null;
+          const data = await response.json();
+          dataCache[cacheKey] = { data, timestamp: now };
+          return data;
+        } catch(error) {
+          console.error("Error en fetchData:", error);
+          return null;
+        }
+      }
+      
+      return { fetchData };
+    })();
+    
+    /*************** MÓDULO: Indicators ***************/
+    const Indicators = (function(){
+      function calculateSMA(prices, period) {
+        if (prices.length < period) return null;
+        return prices.slice(-period).reduce((a, b) => a + b, 0) / period;
+      }
+      function calculateRSI(prices, period = 7) {
+        if (prices.length < period + 1) return null;
+        let gains = [], losses = [];
+        for (let i = 1; i < prices.length; i++) {
+          let change = prices[i] - prices[i - 1];
+          gains.push(change > 0 ? change : 0);
+          losses.push(change < 0 ? -change : 0);
+        }
+        let avgGain = gains.slice(-period).reduce((a, b) => a + b, 0) / period;
+        let avgLoss = losses.slice(-period).reduce((a, b) => a + b, 0) / period;
+        return avgLoss === 0 ? 100 : 100 - (100 / (1 + avgGain / avgLoss));
+      }
+      function calculateATR(highs, lows, closes, period = 7) {
+        let trValues = [];
+        for (let i = 1; i < highs.length; i++) {
+          let tr = Math.max(
+            highs[i] - lows[i],
+            Math.abs(highs[i] - closes[i - 1]),
+            Math.abs(lows[i] - closes[i - 1])
+          );
+          trValues.push(tr);
+        }
+        if (trValues.length < period) return null;
+        let atr = trValues.slice(0, period).reduce((a, b) => a + b, 0) / period;
+        for (let i = period; i < trValues.length; i++) {
+          atr = ((atr * (period - 1)) + trValues[i]) / period;
+        }
+        return atr;
+      }
+      function calculateADX(highs, lows, closes, period = 7) {
+        if (highs.length < period + 1) return null;
+        let tr = [], plusDM = [], minusDM = [];
+        for (let i = 1; i < highs.length; i++) {
+          let currentHigh = highs[i],
+              currentLow = lows[i],
+              previousClose = closes[i - 1],
+              previousHigh = highs[i - 1],
+              previousLow = lows[i - 1];
+          let currentTR = Math.max(
+            currentHigh - currentLow,
+            Math.abs(currentHigh - previousClose),
+            Math.abs(currentLow - previousClose)
+          );
+          tr.push(currentTR);
+          let upMove = currentHigh - previousHigh;
+          let downMove = previousLow - currentLow;
+          plusDM.push((upMove > downMove && upMove > 0) ? upMove : 0);
+          minusDM.push((downMove > upMove && downMove > 0) ? downMove : 0);
+        }
+        let trSum = 0, plusDMSum = 0, minusDMSum = 0;
+        for (let i = 0; i < period; i++) {
+          trSum += tr[i];
+          plusDMSum += plusDM[i];
+          minusDMSum += minusDM[i];
+        }
+        let atr = trSum / period;
+        let smoothedPlusDM = plusDMSum / period;
+        let smoothedMinusDM = minusDMSum / period;
+        let dxArray = [];
+        for (let i = period; i < tr.length; i++) {
+          atr = ((atr * (period - 1)) + tr[i]) / period;
+          smoothedPlusDM = ((smoothedPlusDM * (period - 1)) + plusDM[i]) / period;
+          smoothedMinusDM = ((smoothedMinusDM * (period - 1)) + minusDM[i]) / period;
+          let diPlus = (atr === 0) ? 0 : (smoothedPlusDM / atr) * 100;
+          let diMinus = (atr === 0) ? 0 : (smoothedMinusDM / atr) * 100;
+          let dx = (diPlus + diMinus === 0) ? 0 : (Math.abs(diPlus - diMinus) / (diPlus + diMinus)) * 100;
+          dxArray.push(dx);
+        }
+        if (dxArray.length < period) return null;
+        let adx = dxArray.slice(0, period).reduce((a, b) => a + b, 0) / period;
+        for (let i = period; i < dxArray.length; i++) {
+          adx = ((adx * (period - 1)) + dxArray[i]) / period;
+        }
+        return adx;
+      }
+      function calculateEMA(values, period) {
+        const k = 2 / (period + 1);
+        let emaArray = [values[0]];
+        for (let i = 1; i < values.length; i++) {
+          emaArray.push(values[i] * k + emaArray[i - 1] * (1 - k));
+        }
+        return emaArray[emaArray.length - 1];
+      }
+      function calculateMACDScalping(prices) {
+        if (prices.length < 13) return { macdLine: 0, signalLine: 0, histogram: 0 };
+        let macdArray = [];
+        for (let i = 12; i < prices.length; i++) {
+          let ema6 = calculateEMA(prices.slice(0, i + 1), 6);
+          let ema13 = calculateEMA(prices.slice(0, i + 1), 13);
+          macdArray.push(ema6 - ema13);
+        }
+        let macdLine = macdArray[macdArray.length - 1];
+        let signalLine = calculateEMA(macdArray, 5);
+        return { macdLine: macdLine, signalLine: signalLine, histogram: macdLine - signalLine };
+      }
+      function calculatePriceTrend(prices, period = 20) {
+        if (prices.length < period * 2) return 0;
+        let recentAvg = prices.slice(-period).reduce((a, b) => a + b, 0) / period;
+        let previousAvg = prices.slice(-period * 2, -period).reduce((a, b) => a + b, 0) / period;
+        return recentAvg - previousAvg;
+      }
+      function calculateBollingerBands(prices, period = 20, multiplier = 2) {
+        if (prices.length < period) return null;
+        let sma = calculateSMA(prices, period);
+        let variance = prices.slice(-period)
+          .map(price => Math.pow(price - sma, 2))
+          .reduce((a, b) => a + b, 0) / period;
+        let stdDev = Math.sqrt(variance);
+        return {
+          lower: sma - multiplier * stdDev,
+          middle: sma,
+          upper: sma + multiplier * stdDev
+        };
+      }
+      return {
+        calculateSMA,
+        calculateRSI,
+        calculateATR,
+        calculateADX,
+        calculateEMA,
+        calculateMACDScalping,
+        calculatePriceTrend,
+        calculateBollingerBands
+      };
+    })();
+    
+    /*************** MÓDULO: TradingSimulator ***************/
+    const TradingSimulator = (function(){
+      // Variables de configuración
+      const interval = "1m";
+      const symbols = ["LTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT", "SOLUSDT"];
+      const localStorageKey = "tradingSignalsHistory";
+      let tradeHistory = JSON.parse(localStorage.getItem(localStorageKey)) || [];
+      let balance = 0;
+      const leverage = 20;
+      const fixedOrderValue = 30;
+      const duplicateThreshold = 0.001;
+      const takerFeeRate = 0.0005;
+      let globalCountBuy = 0;
+      let globalCountSell = 0;
+      const confirmationThreshold = 3;
+      
+      // Contadores individuales por símbolo
+      let signalCounters = {};
+      symbols.forEach(symbol => {
+        signalCounters[symbol] = { compra: 0, venta: 0, neutral: 0 };
+      });
+      let slCounter = 0;
+      
+      /*************** Funciones de balance y resumen ***************/
+      function updateNetProfitDisplay(netProfit) {
+        const netProfitDisplay = document.getElementById("netProfitDisplay");
+        netProfitDisplay.innerText = "Balance Neto: $" + netProfit.toFixed(4);
+      }
+      function updateBalanceDisplay() {
+        localStorage.setItem('balance', balance.toFixed(4));
+      }
+      
+      function renderHistoryTable() {
+        let tableBody = "";
+        tradeHistory.forEach(signal => {
+          tableBody += `
+            <tr>
+              <td>${signal.time}</td>
+              <td>${signal.symbol.toUpperCase()}</td>
+              <td>${signal.signal}</td>
+              <td>$${signal.price}</td>
+              <td>$${signal.orderValue}</td>
+              <td>$${signal.takeProfit}</td>
+              <td>${signal.potentialTPPNL ? "$" + signal.potentialTPPNL : ""}</td>
+              <td>$${signal.stopLoss}</td>
+              <td>${signal.potentialSLPNL ? "$" + signal.potentialSLPNL : ""}</td>
+              <td>${translateStatus(signal.status)}</td>
+              <td>${signal.timeToOutcome || ""}</td>
+              <td>${signal.estimatedTimeToTP || ""}</td>
+              <td>${signal.profitLoss ? "$" + signal.profitLoss : ""}</td>
+              <td>${signal.indicatorsState || ""}</td>
+            </tr>
+          `;
+        });
+        document.getElementById("historyList").innerHTML = tableBody;
+      }
+      
+      function translateStatus(status) {
+        switch(status) {
+          case "TP reached": return "TP alcanzado";
+          case "SL reached": return "SL alcanzado";
+          case "Liquidated": return "Liquidado";
+          case "Cerrado por reversión": return "Cerrado por reversión";
+          case "open": return "Abierto";
+          default: return status;
+        }
+      }
+      
+      function updateSummary() {
+        let tpCount = 0, slCount = 0, liquidatedCount = 0, reversalCount = 0;
+        let totalTPProfit = 0, totalSLLoss = 0, totalLiquidatedLoss = 0, totalReversal = 0;
+        let totalTPTime = 0, totalSLTime = 0, totalLiquidatedTime = 0, totalReversalTime = 0;
+        tradeHistory.forEach(signal => {
+          let timeMin = parseInt(signal.timeToOutcome) || 0;
+          if (signal.status === "TP reached") {
+            tpCount++;
+            totalTPProfit += parseFloat(signal.profitLoss || 0);
+            totalTPTime += timeMin;
+          } else if (signal.status === "SL reached") {
+            slCount++;
+            totalSLLoss += Math.abs(parseFloat(signal.profitLoss || 0));
+            totalSLTime += timeMin;
+          } else if (signal.status === "Liquidated") {
+            liquidatedCount++;
+            totalLiquidatedLoss += Math.abs(parseFloat(signal.profitLoss || 0));
+            totalLiquidatedTime += timeMin;
+          } else if (signal.status === "Cerrado por reversión") {
+            reversalCount++;
+            totalReversal += parseFloat(signal.profitLoss || 0);
+            totalReversalTime += timeMin;
+          }
+        });
+        let avgTPTime = tpCount ? Math.round(totalTPTime / tpCount) : "N/A";
+        let avgSLTime = slCount ? Math.round(totalSLTime / slCount) : "N/A";
+        let avgLiquidatedTime = liquidatedCount ? Math.round(totalLiquidatedTime / liquidatedCount) : "N/A";
+        let avgReversalTime = reversalCount ? Math.round(totalReversalTime / reversalCount) : "N/A";
+        let summaryHTML = `
+          <p><strong>TP:</strong> ${tpCount} | Ganado: $${totalTPProfit.toFixed(4)} | Promedio: ${avgTPTime} min</p>
+          <p><strong>SL:</strong> ${slCount} | Perdido: $${totalSLLoss.toFixed(4)} | Promedio: ${avgSLTime} min</p>
+          <p><strong>Liquidado:</strong> ${liquidatedCount} | Perdido: $${totalLiquidatedLoss.toFixed(4)} | Promedio: ${avgLiquidatedTime} min</p>
+          <p><strong>Reversión:</strong> ${reversalCount} | Ganado/Perdido: $${totalReversal.toFixed(4)} | Promedio: ${avgReversalTime} min</p>
+        `;
+        document.getElementById("summaryContent").innerHTML = summaryHTML;
+        let netProfit = totalTPProfit - (totalSLLoss + totalLiquidatedLoss) + totalReversal;
+        updateNetProfitDisplay(netProfit);
+      }
+      
+      /*************** Funciones de gestión de señales ***************/
+      function updateSignalCounter(symbol, signal) {
+        if (!signalCounters[symbol]) return;
+        if (signal === "🟢 COMPRA") {
+          signalCounters[symbol].compra++;
+          signalCounters[symbol].venta = 0;
+          signalCounters[symbol].neutral = 0;
+        } else if (signal === "🔴 VENTA") {
+          signalCounters[symbol].venta++;
+          signalCounters[symbol].compra = 0;
+          signalCounters[symbol].neutral = 0;
+        } else {
+          signalCounters[symbol].neutral++;
+          signalCounters[symbol].compra = 0;
+          signalCounters[symbol].venta = 0;
+        }
+      }
+      function shouldExecuteOrder(symbol, signal) {
+        if (signal === "🟢 COMPRA" && signalCounters[symbol].compra >= confirmationThreshold) return true;
+        if (signal === "🔴 VENTA" && signalCounters[symbol].venta >= confirmationThreshold) return true;
+        return false;
+      }
+      
+      // Función para generar la señal, incluyendo un filtro para mercados laterales
+      function generateTradingSignalScalping(indicators) {
+        const { price, ema9, ema21, rsi, macd, adx, priceTrend, atr, bb } = indicators;
+        let scoreLong = 0, scoreShort = 0;
+        // Valor mínimo para ATR
+        let adjustedATR = (atr && atr < 0.001) ? 0.001 : atr;
+        // Multiplicadores: TP se mantiene en 0.4 * 3 = 1.2; SL se triplica de 0.4 a 1.2
+        const atrMultiplierSL = 1.2; 
+        const atrMultiplierTP = 0.4 * 3; // 1.2
+        let feeCushion = price * 2 * takerFeeRate;
+        
+        // Filtro para evitar mercados laterales: si la tendencia es menor a la mitad del ATR, se retorna NEUTRAL
+        if (Math.abs(priceTrend) < (adjustedATR * 0.5)) {
+          return { signal: "⚪ NEUTRAL", tp: null, sl: null, analysis: "Mercado lateral" };
+        }
+        
+        if (macd.histogram > 0) scoreLong++; else scoreShort++;
+        if (rsi > 50) scoreLong++; else scoreShort++;
+        if (price > ema9 && price > ema21) scoreLong++; else scoreShort++;
+        if (adx > 25) { scoreLong++; scoreShort++; }
+        if (priceTrend > 0) scoreLong++; else if (priceTrend < 0) scoreShort++;
+        if (bb) {
+          if (price < bb.lower) scoreLong++;
+          if (price > bb.upper) scoreShort++;
+        }
+        if (adx < 25 || !adjustedATR || adjustedATR <= 0) {
+          return { signal: "⚪ NEUTRAL", tp: null, sl: null, analysis: "ADX < 25 o ATR inválido" };
+        }
+        if (scoreLong >= 4 && scoreLong > scoreShort) {
+          let stopLoss = price - atrMultiplierSL * adjustedATR;
+          let takeProfit = price + atrMultiplierTP * adjustedATR + feeCushion;
+          return { signal: "🟢 COMPRA", tp: takeProfit, sl: stopLoss, analysis: "Entrada LONG (3:1) ajustada por fee" };
+        } else if (scoreShort >= 4 && scoreShort > scoreLong) {
+          let stopLoss = price + atrMultiplierSL * adjustedATR;
+          let takeProfit = price - atrMultiplierTP * adjustedATR - feeCushion;
+          return { signal: "🔴 VENTA", tp: takeProfit, sl: stopLoss, analysis: "Entrada SHORT (3:1) ajustada por fee" };
+        } else {
+          return { signal: "⚪ NEUTRAL", tp: null, sl: null, analysis: "Condiciones insuficientes" };
+        }
+      }
+      
+      // Función para registrar la operación
+      function updateHistory(newSignal) {
+        const now = Date.now();
+        if (newSignal.signal === "⚪ NEUTRAL") return;
+        let openTrade = tradeHistory.find(signal => signal.symbol === newSignal.symbol && signal.status === "open");
+        if (openTrade) return;
+        const duplicate = tradeHistory.find(signal =>
+          signal.symbol === newSignal.symbol &&
+          signal.status === "open" &&
+          Math.abs(parseFloat(signal.price) - parseFloat(newSignal.price)) / parseFloat(newSignal.price) < duplicateThreshold
+        );
+        if (duplicate) return;
+        let orderValue = fixedOrderValue;
+        newSignal.orderValue = orderValue.toFixed(4);
+        balance -= orderValue;
+        let entryFee = orderValue * takerFeeRate;
+        balance -= entryFee;
+        newSignal.entryFee = entryFee.toFixed(4);
+        newSignal.timestamp = now;
+        if (newSignal.atr && newSignal.adx && newSignal.atr != 0 && newSignal.adx != 0) {
+          newSignal.estimatedTimeToTP = Math.round((Math.abs(newSignal.takeProfit - newSignal.price)) / newSignal.atr * 15 * (20 / newSignal.adx)) + " min";
+        } else {
+          newSignal.estimatedTimeToTP = "N/A";
+        }
+        newSignal.status = "open";
+        newSignal.contraryCount = 0;
+        tradeHistory.unshift(newSignal);
+        localStorage.setItem(localStorageKey, JSON.stringify(tradeHistory));
+        renderHistoryTable();
+        updateSummary();
+      }
+      
+      // Función para actualizar en tiempo real el P&L y calcular potenciales TP/SL
+      function updateSignalStatus(symbol, currentPrice) {
+        const now = Date.now();
+        tradeHistory.forEach(signal => {
+          if (signal.symbol === symbol && signal.status === "open") {
+            signal.currentPrice = currentPrice.toFixed(4);
+            let entry = parseFloat(signal.price);
+            let orderValue = parseFloat(signal.orderValue);
+            if (signal.signal === "🟢 COMPRA") {
+              let TP = parseFloat(signal.takeProfit);
+              let SL = parseFloat(signal.stopLoss);
+              
+              let potentialProfitPercent = ((TP - entry) / entry) * leverage;
+              let potentialProfitAmount = orderValue * potentialProfitPercent;
+              let exitFeeTP = orderValue * (TP / entry) * takerFeeRate;
+              let potentialTPPNL = potentialProfitAmount - exitFeeTP;
+              
+              let potentialLossPercent = ((entry - SL) / entry) * leverage;
+              let potentialLossAmount = orderValue * potentialLossPercent;
+              let exitFeeSL = orderValue * (SL / entry) * takerFeeRate;
+              let potentialSLPNL = -(potentialLossAmount + exitFeeSL);
+              
+              let currentProfitPercent = ((currentPrice - entry) / entry) * leverage;
+              let currentProfitAmount = orderValue * currentProfitPercent;
+              let exitFeeCurrent = orderValue * (currentPrice / entry) * takerFeeRate;
+              let realTimePNL = currentProfitAmount - exitFeeCurrent;
+              
+              signal.potentialTPPNL = potentialTPPNL.toFixed(4);
+              signal.potentialSLPNL = potentialSLPNL.toFixed(4);
+              signal.profitLoss = realTimePNL.toFixed(4);
+              
+              if (currentPrice >= TP) {
+                signal.status = "TP reached";
+                signal.timeToOutcome = Math.round((now - signal.timestamp) / 60000) + " min";
+                balance += (orderValue + realTimePNL);
+                signal.exitFee = (orderValue * (TP / entry) * takerFeeRate).toFixed(4);
+                updateBalanceDisplay();
+              } else if (currentPrice <= SL) {
+                let lossPercent = ((entry - SL) / entry) * leverage;
+                let lossAmount = orderValue * lossPercent;
+                if (lossAmount >= orderValue) {
+                  signal.status = "Liquidated";
+                  let exitFee = orderValue * takerFeeRate;
+                  signal.exitFee = exitFee.toFixed(4);
+                  signal.profitLoss = (-orderValue - exitFee).toFixed(4);
+                  balance += (-exitFee);
+                } else {
+                  signal.status = "SL reached";
+                  let exitFee = orderValue * (SL / entry) * takerFeeRate;
+                  balance += (orderValue - lossAmount - exitFee);
+                  signal.exitFee = exitFee.toFixed(4);
+                  signal.profitLoss = (-lossAmount - exitFee).toFixed(4);
+                }
+                signal.timeToOutcome = Math.round((now - signal.timestamp) / 60000) + " min";
+                updateBalanceDisplay();
+                slCounter++;
+              }
+            }
+            if (signal.signal === "🔴 VENTA") {
+              let TP = parseFloat(signal.takeProfit);
+              let SL = parseFloat(signal.stopLoss);
+              
+              let potentialProfitPercent = ((entry - TP) / entry) * leverage;
+              let potentialProfitAmount = orderValue * potentialProfitPercent;
+              let exitFeeTP = orderValue * (TP / entry) * takerFeeRate;
+              let potentialTPPNL = potentialProfitAmount - exitFeeTP;
+              
+              let potentialLossPercent = ((SL - entry) / entry) * leverage;
+              let potentialLossAmount = orderValue * potentialLossPercent;
+              let exitFeeSL = orderValue * (SL / entry) * takerFeeRate;
+              let potentialSLPNL = -(potentialLossAmount + exitFeeSL);
+              
+              let currentProfitPercent = ((entry - currentPrice) / entry) * leverage;
+              let currentProfitAmount = orderValue * currentProfitPercent;
+              let exitFeeCurrent = orderValue * (currentPrice / entry) * takerFeeRate;
+              let realTimePNL = currentProfitAmount - exitFeeCurrent;
+              
+              signal.potentialTPPNL = potentialTPPNL.toFixed(4);
+              signal.potentialSLPNL = potentialSLPNL.toFixed(4);
+              signal.profitLoss = realTimePNL.toFixed(4);
+              
+              if (currentPrice <= TP) {
+                signal.status = "TP reached";
+                signal.timeToOutcome = Math.round((now - signal.timestamp) / 60000) + " min";
+                balance += (orderValue + realTimePNL);
+                signal.exitFee = (orderValue * (TP / entry) * takerFeeRate).toFixed(4);
+                updateBalanceDisplay();
+              } else if (currentPrice >= SL) {
+                let lossPercent = ((SL - entry) / entry) * leverage;
+                let lossAmount = orderValue * lossPercent;
+                if (lossAmount >= orderValue) {
+                  signal.status = "Liquidated";
+                  let exitFee = orderValue * takerFeeRate;
+                  signal.exitFee = exitFee.toFixed(4);
+                  signal.profitLoss = (-orderValue - exitFee).toFixed(4);
+                  balance += (-exitFee);
+                } else {
+                  signal.status = "SL reached";
+                  let exitFee = orderValue * (SL / entry) * takerFeeRate;
+                  balance += (orderValue - lossAmount - exitFee);
+                  signal.exitFee = exitFee.toFixed(4);
+                  signal.profitLoss = (-lossAmount - exitFee).toFixed(4);
+                }
+                signal.timeToOutcome = Math.round((now - signal.timestamp) / 60000) + " min";
+                updateBalanceDisplay();
+                slCounter++;
+              }
+            }
+          }
+        });
+        localStorage.setItem(localStorageKey, JSON.stringify(tradeHistory));
+        renderHistoryTable();
+        updateSummary();
+      }
+      
+      // Función para borrar el historial
+      function clearHistory() {
+        tradeHistory = [];
+        localStorage.setItem(localStorageKey, JSON.stringify(tradeHistory));
+        renderHistoryTable();
+        updateSummary();
+      }
+      
+      function setInitialBalance() {
+        const input = document.getElementById("initialBalance");
+        const newBalance = parseFloat(input.value);
+        if (!isNaN(newBalance) && newBalance > 0) {
+          balance = newBalance;
+          updateNetProfitDisplay(0);
+        } else {
+          alert("Por favor, ingresa un balance inicial válido.");
+        }
+      }
+      
+      function initializeCryptoCards() {
+        const container = document.getElementById("cryptoContainer");
+        container.innerHTML = "";
+        symbols.forEach(symbol => {
+          container.innerHTML += `
+            <div class="crypto-card" id="card-${symbol}">
+              <h2>${symbol.toUpperCase()}</h2>
+              <div class="price">Cargando...</div>
+              <div class="signal neutral">Cargando...</div>
+              <div class="trend">Tend. compuesta: Cargando...</div>
+            </div>
+          `;
+        });
+      }
+      
+      // Función principal que actualiza todos los símbolos y ejecuta órdenes si se cumple el consenso global
+      async function updateAllSymbols() {
+        let signalsArray = [];
+        let countBuy = 0;
+        let countSell = 0;
+        
+        // Recopilamos las señales para cada símbolo
+        for (const symbol of symbols) {
+          let data = await DataFetcher.fetchData(symbol, interval);
+          if (!data) continue;
+          let closes = data.map(candle => parseFloat(candle[4]));
+          let highs = data.map(candle => parseFloat(candle[2]));
+          let lows = data.map(candle => parseFloat(candle[3]));
+          let currentPrice = closes[closes.length - 1];
+          if (closes.length >= 50) {
+            let priceTrend1m = Indicators.calculatePriceTrend(closes, 20);
+            let ema9 = Indicators.calculateEMA(closes, 9);
+            let ema21 = Indicators.calculateEMA(closes, 21);
+            let rsi = Indicators.calculateRSI(closes, 7);
+            let macd = Indicators.calculateMACDScalping(closes);
+            let atr = Indicators.calculateATR(highs, lows, closes, 7);
+            let adx = Indicators.calculateADX(highs, lows, closes, 7);
+            let bb = Indicators.calculateBollingerBands(closes, 20, 2);
+            let indicators = { price: currentPrice, ema9, ema21, rsi, macd, atr, adx, priceTrend: priceTrend1m, bb };
+            
+            // Tendencias adicionales (5m y 15m)
+            let trendData5m = await DataFetcher.fetchData(symbol, "5m");
+            let trend5m = 0;
+            if (trendData5m && trendData5m.length > 20) {
+              let closes5m = trendData5m.map(candle => parseFloat(candle[4]));
+              trend5m = Indicators.calculatePriceTrend(closes5m, 20);
+            }
+            let trendData15m = await DataFetcher.fetchData(symbol, "15m");
+            let trend15m = 0;
+            if (trendData15m && trendData15m.length > 20) {
+              let closes15m = trendData15m.map(candle => parseFloat(candle[4]));
+              trend15m = Indicators.calculatePriceTrend(closes15m, 20);
+            }
+            let combinedTrend = (trend5m + trend15m) / 2;
+            
+            let tradeSignal = generateTradingSignalScalping(indicators);
+            // Actualizamos contadores individuales
+            updateSignalCounter(symbol, tradeSignal.signal);
+            if (tradeSignal.signal === "🟢 COMPRA") {
+              countBuy++;
+            } else if (tradeSignal.signal === "🔴 VENTA") {
+              countSell++;
+            }
+            let signalRecord = {
+              time: new Date().toLocaleString(),
+              symbol,
+              signal: tradeSignal.signal,
+              price: currentPrice.toFixed(4),
+              orderValue: "",
+              takeProfit: tradeSignal.tp ? tradeSignal.tp.toFixed(4) : "N/A",
+              stopLoss: tradeSignal.sl ? tradeSignal.sl.toFixed(4) : "N/A",
+              atr, 
+              adx, 
+              priceTrend: priceTrend1m,
+              analysis: tradeSignal.analysis + " | Tendencia compuesta: " + combinedTrend.toFixed(4),
+              indicatorsState: `EMA9: ${ema9.toFixed(4)}, EMA21: ${ema21.toFixed(4)}, RSI: ${rsi ? rsi.toFixed(2) : 'N/A'}, MACD: ${macd.histogram ? macd.histogram.toFixed(4) : 'N/A'}, ATR: ${atr ? atr.toFixed(4) : 'N/A'}, ADX: ${adx ? adx.toFixed(4) : 'N/A'}`
+            };
+            signalsArray.push({
+              symbol,
+              tradeSignal,
+              signalRecord,
+              currentPrice,
+              indicators,
+              combinedTrend
+            });
+          }
+        }
+        
+        // Actualizamos los contadores globales
+        globalCountBuy = countBuy;
+        globalCountSell = countSell;
+        
+        // Umbral de consenso global: 2 señales son suficientes
+        const consensusThresholdGlobal = 2;
+        const globalConsensusBuy = countBuy >= consensusThresholdGlobal;
+        const globalConsensusSell = countSell >= consensusThresholdGlobal;
+        
+        // Para cada símbolo, si se cumple el consenso global y los contadores individuales, se ejecuta la orden
+        for (const item of signalsArray) {
+          if (item.tradeSignal.signal === "🟢 COMPRA" && globalConsensusBuy && shouldExecuteOrder(item.symbol, item.tradeSignal.signal)) {
+            updateHistory(item.signalRecord);
+          } else if (item.tradeSignal.signal === "🔴 VENTA" && globalConsensusSell && shouldExecuteOrder(item.symbol, item.tradeSignal.signal)) {
+            updateHistory(item.signalRecord);
+          }
+          // Actualizamos la interfaz y se recalculan los valores en tiempo real
+          updateInterface(item.symbol, item.indicators, item.tradeSignal, item.combinedTrend);
+          updateSignalStatus(item.symbol, item.currentPrice);
+        }
+        
+        if (Math.abs(countBuy - countSell) < 1) {
+          console.log("Balance global de señales:", countBuy, "COMPRA vs", countSell, "VENTA");
+        }
+      }
+      
+      function updateInterface(symbol, indicators, tradeSignal, combinedTrend) {
+        const card = document.getElementById(`card-${symbol}`);
+        if (!card) return;
+        let trendText = combinedTrend > 0 ? "Sube $" + Math.abs(combinedTrend).toFixed(2) :
+                        (combinedTrend < 0 ? "Baja $" + Math.abs(combinedTrend).toFixed(2) : "Estable");
+        card.innerHTML = `
+          <h2>${symbol.toUpperCase()}</h2>
+          <div class="price">$${indicators.price.toFixed(4)}</div>
+          <div class="signal ${tradeSignal.signal === '🟢 COMPRA' ? 'buy' : tradeSignal.signal === '🔴 VENTA' ? 'sell' : 'neutral'}">
+            ${tradeSignal.signal}
+          </div>
+          <div class="trend"><strong>Tend. compuesta:</strong> ${trendText}</div>
+        `;
+      }
+      
+      function initialize() {
+        initializeCryptoCards();
+        updateAllSymbols();
+        setInterval(updateAllSymbols, 10000);
+      }
+      
+      return {
+        initialize,
+        clearHistory,
+        setInitialBalance
+      };
+    })();
+    
+    /*************** Asignar eventos ***************/
+    document.addEventListener("DOMContentLoaded", function(){
+      document.getElementById("setBalanceBtn").addEventListener("click", TradingSimulator.setInitialBalance);
+      document.getElementById("clearHistoryBtn").addEventListener("click", TradingSimulator.clearHistory);
+      TradingSimulator.initialize();
+    });
+    
+  })();
+  </script>
+</body>
+</html>
